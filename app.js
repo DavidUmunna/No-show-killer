@@ -192,7 +192,7 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 // Connect to the backend WebSocket for real-time updates
 function connectWebSocket() {
   try {
-    ws = new WebSocket(`ws://localhost:5200/ws`);
+    ws = new WebSocket(`wss:https://no-show-killer-production.up.railway.app/ws`);
 
     ws.onopen = () => {
       reconnectAttempts = 0;
