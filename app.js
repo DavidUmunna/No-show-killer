@@ -1,4 +1,4 @@
-const API_BASE = process.env.API_BASE ;
+const API_BASE = "https://no-show-killer-production.up.railway.app/";
 
 const appointmentsEl = document.getElementById("appointments");
 const cardTemplate = document.getElementById("card-template");
