@@ -245,6 +245,14 @@ app.post("/api/confirm-tomorrow", async (req, res) => {
   res.json({ triggered });
 });
 
+app.get("/", (req, res) => {
+  try{
+      res.send("This is the No-Show Killer backend. Use the frontend to interact with it.");
+  }catch(err){
+    console.error("Error serving index.html:", err.message);
+    res.status(500).send("Internal Server Error");
+  }
+});
 
 
 const PORT = process.env.PORT || 5200;
