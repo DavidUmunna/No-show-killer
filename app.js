@@ -1,4 +1,4 @@
-const API_BASE = "http://localhost:5200";
+const API_BASE = process.env.API_BASE ;
 
 const appointmentsEl = document.getElementById("appointments");
 const cardTemplate = document.getElementById("card-template");
