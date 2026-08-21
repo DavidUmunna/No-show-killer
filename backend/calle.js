@@ -1,21 +1,46 @@
 import dotenv from 'dotenv';
 dotenv.config();
 import { execFile } from 'child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Resolve the CLI by path instead of relying on `calle` being on $PATH.
+// `@call-e/cli` is a regular dependency (see package.json), so this works
+// the same way locally and on Railway regardless of how the start script
+// sets up PATH.
+const CALLE_BIN = path.join(
+  __dirname,
+  "node_modules",
+  "@call-e",
+  "cli",
+  "bin",
+  "calle.js"
+);
 
 // Defaults, overridable per-call or via env vars.
 const DEFAULT_REGION = process.env.CALLE_REGION || null;
 const DEFAULT_TIMEOUT_SECONDS = process.env.CALLE_TIMEOUT_SECONDS || null;
 
+// Where the CLI reads/writes its OAuth token cache. Must point at a
+// persistent path (e.g. a mounted Railway volume) in production - a
+// container's default $HOME is wiped on every redeploy, which is what was
+// breaking auth. See README/deploy notes for the one-time login step that
+// populates this path.
+const CACHE_ROOT = process.env.CALLE_CACHE_ROOT || null;
+
 function runCalle(args) {
+  const finalArgs = CACHE_ROOT
+    ? [...args, "--cache-root", CACHE_ROOT, "--json"]
+    : [...args, "--json"];
+
   return new Promise((resolve, reject) => {
     execFile(
-      "calle",
-      [...args, "--json"],
+      process.execPath, // node
+      [CALLE_BIN, ...finalArgs],
       {
-        env: {
-          ...process.env,
-          CALLE_API_KEY: process.env.CALLE_API_KEY,
-        },
+        env: process.env,
         maxBuffer: 10 * 1024 * 1024,
       },
       (err, stdout, stderr) => {

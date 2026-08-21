@@ -159,9 +159,8 @@ async function runNightlyBatch() {
 
   await saveAppointments(appointments);
 
-  if (updatedAppointments.length > 0) {
-    broadcastAppointmentUpdate(updatedAppointments);
-  }
+  // Note: triggerCall() already broadcasts each appointment's update as it
+  // fires, so there's nothing left to broadcast here.
   return triggered;
 }
 
@@ -186,10 +185,16 @@ wss.on("connection", (ws) => {
       console.error("Failed to parse WebSocket message:", err.message);
     }
   })
-});
-wss.on("close", () => {
-  clients.delete(ws);
-  console.log("WebSocket client disconnected. Total clients:", clients.size);
+
+  ws.on("close", () => {
+    clients.delete(ws);
+    console.log("WebSocket client disconnected. Total clients:", clients.size);
+  });
+
+  ws.on("error", (err) => {
+    console.error("WebSocket error:", err.message);
+    clients.delete(ws);
+  });
 });
 app.get("/api/health", async (req, res) => {
   try {
