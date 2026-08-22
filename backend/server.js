@@ -8,7 +8,7 @@ import cron from "node-cron";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { authStatus, startCall, callStatus } from "./calle.js";
+import { authStatus, startCall, callStatus, DRY_RUN } from "./calle.js";
 import { regionFromPhone } from "./phone-region.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -211,9 +211,9 @@ wss.on("connection", (ws) => {
 app.get("/api/health", async (req, res) => {
   try {
     const status = await authStatus();
-    res.json({ backend: "ok", calle: status });
+    res.json({ backend: "ok", dryRun: DRY_RUN, calle: status });
   } catch (err) {
-    res.status(500).json({ backend: "ok", calle: null, error: err.message });
+    res.status(500).json({ backend: "ok", dryRun: DRY_RUN, calle: null, error: err.message });
   }
 });
 app.post("/api/appointments", async (req, res) => {
@@ -283,21 +283,32 @@ server.listen(PORT, () => {
 // Nightly cron: fires once a day and confirms every PENDING appointment
 // scheduled for tomorrow. Override timing via env vars, e.g.:
 //   CRON_SCHEDULE="0 9 * * *" CRON_TIMEZONE="America/Los_Angeles" npm start
+// Set CRON_ENABLED=false to turn the recurring job off entirely without
+// touching code - the one-off /api/confirm-tomorrow and /confirm endpoints
+// keep working either way.
 const CRON_SCHEDULE = process.env.CRON_SCHEDULE || "0 18 * * *"; // 6pm daily
 const CRON_TIMEZONE = process.env.CRON_TIMEZONE || Intl.DateTimeFormat().resolvedOptions().timeZone;
+const CRON_ENABLED = process.env.CRON_ENABLED !== "false";
 
-cron.schedule(
-  CRON_SCHEDULE,
-  async () => {
-    console.log(`[cron] running nightly confirmation batch at ${new Date().toISOString()}`);
-    try {
-      const triggered = await runNightlyBatch();
-      console.log(`[cron] triggered ${triggered.length} confirmation call(s):`, triggered);
-    } catch (err) {
-      console.error("[cron] nightly batch failed:", err.message);
-    }
-  },
-  { timezone: CRON_TIMEZONE }
-);
+if (CRON_ENABLED) {
+  cron.schedule(
+    CRON_SCHEDULE,
+    async () => {
+      console.log(`[cron] running nightly confirmation batch at ${new Date().toISOString()}`);
+      try {
+        const triggered = await runNightlyBatch();
+        console.log(`[cron] triggered ${triggered.length} confirmation call(s):`, triggered);
+      } catch (err) {
+        console.error("[cron] nightly batch failed:", err.message);
+      }
+    },
+    { timezone: CRON_TIMEZONE }
+  );
+  console.log(`[cron] nightly confirmation batch scheduled: "${CRON_SCHEDULE}" (${CRON_TIMEZONE})`);
+} else {
+  console.log("[cron] nightly confirmation batch disabled (CRON_ENABLED=false)");
+}
 
-console.log(`[cron] nightly confirmation batch scheduled: "${CRON_SCHEDULE}" (${CRON_TIMEZONE})`);
+if (DRY_RUN) {
+  console.log("[dry-run] DRY_RUN is on - no real CALL-E calls will be placed. Set DRY_RUN=false to go live.");
+}

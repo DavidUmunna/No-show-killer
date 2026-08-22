@@ -4,6 +4,9 @@ Confirms tomorrow's appointments by phone with CALL-E, and lets people reschedul
 on the call. Backend triggers/tracks calls via the `calle` CLI; frontend is a
 plain HTML/JS dashboard that polls the backend for live status.
 
+**Runs in dry-run mode by default** - no real phone call is placed until you
+explicitly set `DRY_RUN=false`. See "Dry-run mode" below.
+
 ## Structure
 
 ```
@@ -38,20 +41,47 @@ MCP server for you.
 - Both start a background poll loop (`calle call status`) every 3s until a
   terminal status, writing progress back to `appointments.json`
 
-## One thing to verify before a real demo
+## Dry-run mode (default: on)
+
+`DRY_RUN` defaults to `true` (see `backend/.env.example`). While it's on,
+`backend/calle.js` never shells out to the real `calle` CLI - `startCall()`
+and `callStatus()` return a synthetic response in the same shape a real call
+produces (status `COMPLETED`, a fake `run_id`, a `[DRY RUN]`-prefixed
+summary), so the rest of the app - status polling, the WebSocket updates, the
+UI, `appointments.json` - exercises its real code paths without spending
+money or ringing anyone's phone. The backend logs `[dry-run] would call
+<number> - goal: "..."` for every simulated call, and `GET /api/health`
+reports the current `dryRun` value.
+
+## Verify it works
+
+No external test framework is used - `npm test` (from `backend/`) runs
+`scripts/smoke-test.mjs`, which fires a dry-run `startCall()`/`callStatus()`
+pair against a fictional sample number and asserts the fields the app relies
+on come back in the right shape. It refuses to run at all if `DRY_RUN=false`,
+so it can never place a real call. This is also a good manual check after
+pulling the repo: `cd backend && npm install && npm test`.
+
+## Go live with real calls
 
 The exact JSON field names for `calle call start`/`call status` output
 (`run_id`, `status_result.structuredContent`, `result.structuredContent`) are
-taken from the CLI's documented shape — I haven't fired a real call yet to
-confirm it byte-for-byte, since that would place an actual phone call to
-whatever number you put in the demo data. Before your first real test call:
+taken from the CLI's documented shape - they haven't been confirmed against a
+real phone call. Before your first real test call:
 
-1. Put your own real phone number in one appointment in `appointments.json`
-2. Click "Send confirmation call" for that card
-3. Check the backend terminal output / `data/appointments.json` after — if the
+1. Set `DRY_RUN=false` (env var or in `.env`)
+2. Put your own real phone number in one appointment in `appointments.json`
+3. Click "Send confirmation call" for that card
+4. Check the backend terminal output / `data/appointments.json` after — if the
    status/activity fields don't populate, run `calle call start --to-phone
    <your number> --goal "test" --json` directly and adjust the field paths in
    `server.js`'s `extractFields`/`triggerCall` to match
+
+Once you're confident it works, set `DRY_RUN=false` for real usage. There is
+no way to cancel a call after it starts ringing - the `calle` CLI doesn't
+expose a cancel/hangup command, so `triggerCall()`'s existing guard (refusing
+a second call while one is already in flight for the same appointment) is the
+only in-flight protection available.
 
 ## Nightly cron
 
@@ -70,6 +100,17 @@ long-term (Render/Fly/Railway background worker) or drop the cron block and
 call `POST /api/confirm-tomorrow` from a platform-level scheduled job instead
 (e.g. a serverless cron trigger) if you'd rather not manage a long-running
 process.
+
+### Turn off the nightly cron
+
+Set `CRON_ENABLED=false` (env var or in `.env`) and restart the backend - the
+recurring job is skipped entirely and the startup log says so. This doesn't
+touch code, so it's safe to flip on/off per environment. The one-off `POST
+/api/confirm-tomorrow` and `POST /api/appointments/:id/confirm` endpoints keep
+working either way; only the automatic nightly firing is disabled.
+Stopping the `npm start` process (e.g. `Ctrl+C`, or stopping the deployed
+worker) also stops it, since the schedule only runs while that process is
+alive.
 
 ## Next steps for a real deployment
 
