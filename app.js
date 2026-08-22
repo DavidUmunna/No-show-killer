@@ -151,10 +151,18 @@ function updateCard(card, appt) {
   const btn = card.querySelector(".confirm-btn");
   let btnText;
   let btnDisabled;
+  const inProgress = appt.runId && ["PENDING", "STARTED", "CALLING"].includes(appt.status);
 
   if (!appt.status) {
     btnDisabled = true;
     btnText = "⏳ No call yet";
+  } else if (inProgress) {
+    // A call has actually been placed and hasn't reached a terminal status
+    // yet - keep the button disabled with distinct copy so it doesn't look
+    // like a fresh, clickable "send confirmation call" button and invite a
+    // second call to the same patient.
+    btnDisabled = true;
+    btnText = "📞 Call in progress…";
   } else if (["PENDING", "STARTED", "CALLING"].includes(appt.status)) {
     btnDisabled = false;
     btnText = "📞 Send confirmation call";
@@ -178,7 +186,15 @@ async function confirmAppointment(id, btn) {
   btn.disabled = true;
   btn.textContent = "⏳ Calling…";
   try {
-    await fetch(`${API_BASE}/api/appointments/${id}/confirm`, { method: "POST" });
+    const res = await fetch(`${API_BASE}/api/appointments/${id}/confirm`, { method: "POST" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      if (body.code === "call_in_progress") {
+        alert("A call for this appointment is already in progress.");
+      } else {
+        alert(`Failed to start call: ${body.error || res.statusText}`);
+      }
+    }
   } catch (err) {
     alert(`Failed to start call: ${err.message}`);
   }
