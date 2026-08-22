@@ -112,6 +112,18 @@ async function triggerCall(appointments, apptId) {
   if (idx === -1) return { ok: false, error: "not found" };
 
   const appt = appointments[idx];
+
+  // Refuse to start a second call while one is already in flight for this
+  // appointment - without this, a double-click (or the batch job racing a
+  // manual confirm) would dial the patient twice.
+  if (appt.runId && !TERMINAL_STATUSES.has(appt.status)) {
+    return {
+      ok: false,
+      code: "call_in_progress",
+      error: "A call for this appointment is already in progress",
+    };
+  }
+
   const goal = buildGoal(appt);
   const region = regionFromPhone(appt.phone);
 
@@ -239,7 +251,10 @@ app.get("/api/appointments", async (req, res) => {
 app.post("/api/appointments/:id/confirm", async (req, res) => {
   const appointments = await loadAppointments();
   const outcome = await triggerCall(appointments, req.params.id);
-  if (!outcome.ok) return res.status(502).json({ error: outcome.error });
+  if (!outcome.ok) {
+    const statusCode = outcome.code === "call_in_progress" ? 409 : 502;
+    return res.status(statusCode).json({ error: outcome.error, code: outcome.code });
+  }
 
   await saveAppointments(appointments);
   res.json(outcome.appointment);
