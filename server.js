@@ -8,7 +8,7 @@ import cron from "node-cron";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { authStatus, startCall, callStatus } from "./calle.js";
+import { authStatus, startCall, callStatus, DRY_RUN } from "./calle.js";
 import { regionFromPhone } from "./phone-region.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -343,10 +343,11 @@ app.get("/api/health", async (req, res) => {
     const status = await authStatus();
     res.json({
       backend: "ok",
+      dryRun: DRY_RUN,
       calle: { usable: status?.usable ?? false, expires_at: status?.expires_at ?? null },
     });
   } catch (err) {
-    res.status(500).json({ backend: "ok", calle: null, error: err.message });
+    res.status(500).json({ backend: "ok", dryRun: DRY_RUN, calle: null, error: err.message });
   }
 });
 
@@ -435,41 +436,52 @@ server.listen(PORT, () => {
 // An operator clicking "Run tomorrow's confirmation calls" in the dashboard
 // (POST /api/confirm-tomorrow, behind requireAuth) always works regardless
 // of this flag, since that's explicit human intent for that one run.
+// Set CRON_ENABLED=false to turn the recurring job off entirely without
+// touching code - the one-off /api/confirm-tomorrow and /confirm endpoints
+// keep working either way.
 const CRON_SCHEDULE = process.env.CRON_SCHEDULE || "0 18 * * *"; // 6pm daily
 const CRON_TIMEZONE = process.env.CRON_TIMEZONE || Intl.DateTimeFormat().resolvedOptions().timeZone;
+const CRON_ENABLED = process.env.CRON_ENABLED !== "false";
 const LIVE_UNATTENDED_BATCH = process.env.LIVE_UNATTENDED_BATCH === "true";
 
-cron.schedule(
-  CRON_SCHEDULE,
-  async () => {
-    if (!LIVE_UNATTENDED_BATCH) {
-      const appointments = await loadAppointments();
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const targetDate = tomorrow.toISOString().slice(0, 10);
-      const pending = appointments.filter(
-        (a) => a.scheduledAt.slice(0, 10) === targetDate && a.status === "PENDING"
-      ).length;
-      console.log(
-        `[cron] LIVE_UNATTENDED_BATCH is not enabled - skipping automatic dispatch. ` +
-          `${pending} appointment(s) are ready for tomorrow; an operator needs to click ` +
-          `"Run tomorrow's confirmation calls" to actually place them.`
-      );
-      return;
-    }
+if (CRON_ENABLED) {
+  cron.schedule(
+    CRON_SCHEDULE,
+    async () => {
+      if (!LIVE_UNATTENDED_BATCH) {
+        const appointments = await loadAppointments();
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const targetDate = tomorrow.toISOString().slice(0, 10);
+        const pending = appointments.filter(
+          (a) => a.scheduledAt.slice(0, 10) === targetDate && a.status === "PENDING"
+        ).length;
+        console.log(
+          `[cron] LIVE_UNATTENDED_BATCH is not enabled - skipping automatic dispatch. ` +
+            `${pending} appointment(s) are ready for tomorrow; an operator needs to click ` +
+            `"Run tomorrow's confirmation calls" to actually place them.`
+        );
+        return;
+      }
 
-    console.log(`[cron] running nightly confirmation batch at ${new Date().toISOString()}`);
-    try {
-      const triggered = await runNightlyBatch();
-      console.log(`[cron] triggered ${triggered.length} confirmation call(s):`, triggered);
-    } catch (err) {
-      console.error("[cron] nightly batch failed:", err.message);
-    }
-  },
-  { timezone: CRON_TIMEZONE }
-);
+      console.log(`[cron] running nightly confirmation batch at ${new Date().toISOString()}`);
+      try {
+        const triggered = await runNightlyBatch();
+        console.log(`[cron] triggered ${triggered.length} confirmation call(s):`, triggered);
+      } catch (err) {
+        console.error("[cron] nightly batch failed:", err.message);
+      }
+    },
+    { timezone: CRON_TIMEZONE }
+  );
+  console.log(
+    `[cron] nightly confirmation batch scheduled: "${CRON_SCHEDULE}" (${CRON_TIMEZONE}), ` +
+      `unattended dispatch ${LIVE_UNATTENDED_BATCH ? "ENABLED" : "disabled (report-only)"}`
+  );
+} else {
+  console.log("[cron] nightly confirmation batch disabled (CRON_ENABLED=false)");
+}
 
-console.log(
-  `[cron] nightly confirmation batch scheduled: "${CRON_SCHEDULE}" (${CRON_TIMEZONE}), ` +
-    `unattended dispatch ${LIVE_UNATTENDED_BATCH ? "ENABLED" : "disabled (report-only)"}`
-);
+if (DRY_RUN) {
+  console.log("[dry-run] DRY_RUN is on - no real CALL-E calls will be placed. Set DRY_RUN=false to go live.");
+}
