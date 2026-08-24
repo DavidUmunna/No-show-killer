@@ -1,0 +1,77 @@
+name: Sync deploy branches
+
+# This repo keeps two Railway services deployed from flat, unrelated
+# branches - `backend` and `frontend` - separate from the monorepo-style
+# layout on `main` (backend/, frontend/ subdirectories) used for local dev.
+# `main` is the source of truth: whenever backend/ or frontend/ change here,
+# mirror the current file contents onto the matching deploy branch and push,
+# which triggers Railway's existing auto-deploy on that branch.
+#
+# This only runs main -> backend/frontend. Editing backend/frontend directly
+# will get silently overwritten next time main pushes to that path - always
+# make changes under main's backend/ or frontend/ directories.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "branch-sync-bot"
+          git config user.email "branch-sync-bot@users.noreply.github.com"
+
+      - name: Sync backend/ -> backend branch
+        run: |
+          set -e
+          git fetch origin backend
+          git worktree add --detach /tmp/backend-branch origin/backend
+          rsync -a --delete \
+            --exclude node_modules \
+            --exclude .git \
+            "$GITHUB_WORKSPACE/backend/" /tmp/backend-branch/
+          cd /tmp/backend-branch
+          git add -A
+          if git diff --cached --quiet; then
+            echo "backend: no changes to sync"
+          else
+            git commit -m "Sync from main@${GITHUB_SHA::7}"
+            git push origin HEAD:backend
+          fi
+
+      - name: Sync frontend/ -> frontend branch
+        run: |
+          set -e
+          git fetch origin frontend
+          git worktree add --detach /tmp/frontend-branch origin/frontend
+          rsync -a --delete \
+            --exclude node_modules \
+            --exclude .git \
+            "$GITHUB_WORKSPACE/frontend/" /tmp/frontend-branch/
+          cd /tmp/frontend-branch
+          # main's copy intentionally points at localhost for local dev;
+          # the deployed branch needs the production backend URL. The
+          # WebSocket URL is derived from API_BASE in app.js, so this one
+          # substitution covers both.
+          sed -i 's#http://localhost:5200#https://no-show-killer-production.up.railway.app#' app.js
+          git add -A
+          if git diff --cached --quiet; then
+            echo "frontend: no changes to sync"
+          else
+            git commit -m "Sync from main@${GITHUB_SHA::7}"
+            git push origin HEAD:frontend
+          fi
