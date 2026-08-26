@@ -1,0 +1,6 @@
+{
+  "name": "frontend",
+  "scripts": {
+    "start": "npx serve -s . -l $PORT"
+  }
+}
