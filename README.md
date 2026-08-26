@@ -50,7 +50,9 @@ produces (status `COMPLETED`, a fake `run_id`, a `[DRY RUN]`-prefixed
 summary), so the rest of the app - status polling, the WebSocket updates, the
 UI, `appointments.json` - exercises its real code paths without spending
 money or ringing anyone's phone. The backend logs `[dry-run] would call
-<number> - goal: "..."` for every simulated call, and `GET /api/health`
+<masked number> (goal set, not logged)` for every simulated call - the
+destination is masked and the goal text (which includes the patient's name
+and appointment details) is never printed at all - and `GET /api/health`
 reports the current `dryRun` value.
 
 ## Verify it works
